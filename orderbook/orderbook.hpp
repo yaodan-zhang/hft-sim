@@ -5,6 +5,15 @@
 #pragma once
 #include <immintrin.h>
 #include <array>
+#include <atomic>
+
+#if defined(__x86_64__) || defined(_M_X64)
+    #define HFT_ATOMIC_INCREMENT(ptr) \
+        asm volatile("lock incl %0" : "+m"(*ptr) :: "memory")
+#else
+    #define HFT_ATOMIC_INCREMENT(ptr) \
+        reinterpret_cast<std::atomic<uint32_t>*>(ptr)->fetch_add(1, std::memory_order_release)
+#endif
 
 constexpr size_t TIER_SIZE = 16; // Process 16 price levels per AVX-512 op
 

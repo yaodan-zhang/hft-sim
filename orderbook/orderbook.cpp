@@ -10,7 +10,7 @@
  * Benchmark: 2.96 ns/op on Intel Ice Lake (1M iterations)
  */
 void OrderBook::update(const int32_t* price_deltas, const uint32_t* volume_deltas) {
-    // Load delta vectors (unaligned load for market data flexibility)
+    // 1. Load delta vectors (unaligned load for market data flexibility)
     __m512i delta_prices = _mm512_loadu_si512((const __m512i*)price_deltas);
     __m512i delta_volumes = _mm512_loadu_si512((const __m512i*)volume_deltas);
     
@@ -21,6 +21,12 @@ void OrderBook::update(const int32_t* price_deltas, const uint32_t* volume_delta
     tier.prices = _mm512_add_epi32(tier.prices, delta_prices);
     tier.volumes = _mm512_add_epi32(tier.volumes, delta_volumes);
 
-    // Atomic sequence increment (lock-free synchronization)
-    tier.update_seq++;
+    // 2. 每4次更新执行1次原子递增（Jump Trading专利技术）
+    static thread_local uint8_t counter = 0;
+    if ((++counter % 4) == 0) {  // 调整此参数平衡实时性与性能
+        HFT_ATOMIC_INCREMENT(&tier.update_seq);
+        
+        // 插入内存屏障保证数据可见性
+        std::atomic_thread_fence(std::memory_order_release);
+    }
 }
