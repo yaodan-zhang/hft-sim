@@ -19,8 +19,8 @@ Snapshot latency: 1.35 ns/op
 </details>
 
 ## How to compile and profile
-g++ -mavx512f -O3 -Wall -std=c++17 test_orderbook.cpp ../../core/orderbook.cpp -o hft_test
+g++ -mavx512f -O3 -Wall -std=c++17 test_orderbook.cpp ../../core/orderbook.cpp -o hft_test  
 ./hft_test
 
-g++ -mavx512f -mavx512dq -O3 orderbook.cpp benchmark.cpp -o benchmark
+g++ -mavx512f -mavx512dq -O3 orderbook.cpp benchmark.cpp -o benchmark  
 perf stat -e cycles,instructions,L1-dcache-load-misses ./benchmark
