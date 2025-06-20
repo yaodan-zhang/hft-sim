@@ -19,14 +19,7 @@ if (!(x)) std::cerr << "EXPECT_TRUE failed: " #x " at " << __FILE__ << ":" << __
 
 #define EXPECT_EQ(a, b) EXPECT_TRUE((a) == (b))
 #define EXPECT_GT(a, b) EXPECT_TRUE((a) > (b))
-#define EXPECT_LT(a, b) EXPECT_TRUE((a) < (b))  // <-- Add this
-
-#define ASSERT(cond) \
-    do { \
-        if (!(cond)) { \
-            throw std::runtime_error("Assertion failed: " #cond); \
-        } \
-    } while(0)
+#define EXPECT_LT(a, b) EXPECT_TRUE((a) < (b))
 
 #define EXPECT_THROW(expr, ex_type) \
     do { \
