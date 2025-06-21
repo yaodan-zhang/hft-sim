@@ -1,47 +1,67 @@
-// orderbook.cpp
-#include"orderbook.hpp"
+#include "orderbook.h"
+#include <iostream>
 
-/**
- * Process market data updates using AVX-512 vector instructions
- * @param price_deltas Array of TIER_SIZE price changes (int32)
- * @param volume_deltas Array of TIER_SIZE volume changes (uint32)
- * 
- * Benchmark: 2.91 ns/op on Intel Ice Lake (1M iterations)
- */
-uint64_t OrderBook::update(const int32_t* price_deltas, const uint32_t* volume_deltas) {
-    if ((uintptr_t)price_deltas % 64 != 0 || (uintptr_t)volume_deltas % 64 != 0) {
-        throw std::runtime_error("Input arrays must be 64-byte aligned");
+OrderBook::OrderBook() {
+    // Initialize each tier
+    for (auto& tier : _tiers) {
+        tier.prices = _mm512_setzero_si512();
+        tier.volumes = _mm512_setzero_si512();
+        tier.seq = 0;
+        tier.active_mask = 0;
     }
-
-    // 1. Load delta vectors
-    __m512i delta_prices = _mm512_load_si512(price_deltas);
-    __m512i delta_volumes = _mm512_load_si512(volume_deltas);
-    
-    // Update first tier (example)
-    PriceTier& tier = m_tiers[0];
-
-    // AVX-512 parallel addition （TIER_SIZE price/volume levels updated simultaneously)
-    tier.prices = _mm512_add_epi32(tier.prices, delta_prices);
-    tier.volumes = _mm512_add_epi32(tier.volumes, delta_volumes);
-
-    // 2. Perform atomic add to sequence number every BATCH_SIZE increments
-    static thread_local uint8_t counter = 0;
-    if ((++counter % BATCH_SIZE) == 0) {
-        return tier.update_seq.fetch_add(1, std::memory_order_release) + 1;
-    }
-    
-    return tier.update_seq.load(std::memory_order_relaxed);
 }
 
-uint64_t OrderBook::get_snapshot(int32_t* out_prices, uint32_t* out_volumes) const {
-    if ((uintptr_t)out_prices % 64 != 0 || (uintptr_t)out_volumes % 64 != 0) {
-        throw std::runtime_error("Input arrays must be 64-byte aligned");
+uint64_t OrderBook::update(const __m512i& prices, const __m512i& volumes, __mmask16 ask_mask) {
+    __mmask16 bid_mask = ~ask_mask;
+    // 1. 将价格映射到 tier 索引
+    __m512i tier_idx = _mm512_srli_epi32(prices, 14);
+
+    for (size_t i = 0; i < MAX_TIERS; ++i) {
+        __m512i tier_val = _mm512_set1_epi32(i);
+        __mmask16 match_mask = _mm512_cmpeq_epi32_mask(tier_idx, tier_val);
+        __mmask16 final_bid_mask = match_mask & bid_mask;
+        __mmask16 final_ask_mask = match_mask & ask_mask;
+
+        if (final_bid_mask | final_ask_mask) {
+            auto& tier = _tiers[i];
+            tier.prices = _mm512_mask_add_epi32(tier.prices, match_mask, tier.prices, prices);
+            tier.volumes = _mm512_mask_add_epi32(tier.volumes, match_mask, tier.volumes, volumes);
+            tier.active_mask |= final_bid_mask | final_ask_mask;
+            tier.seq.fetch_add(1, std::memory_order_release);
+        }
     }
 
-    const PriceTier& tier = m_tiers[0];
-    _mm512_store_epi32(out_prices, tier.prices);
-    _mm512_store_epi32(out_volumes, tier.volumes);
+    return _tiers[0].seq.load(std::memory_order_relaxed);
+}
 
-    // Load with acquire semantics
-    return tier.update_seq.load(std::memory_order_acquire);
+
+uint64_t OrderBook::get_snapshot(__m512i& out_prices, __m512i& out_volumes) const {
+    const auto& tier = _tiers[0];
+
+    // Acquire load to ensure consistent snapshot
+    uint64_t version = tier.seq.load(std::memory_order_acquire);
+
+    out_prices = tier.prices;
+    out_volumes = tier.volumes;
+
+    return version;
+}
+
+void OrderBook::get_top_of_book(int32_t& best_bid, int32_t& best_ask) const {
+    __m512i max_bid = _mm512_set1_epi32(INT32_MIN);
+    __m512i min_ask = _mm512_set1_epi32(INT32_MAX);
+    
+    for (const auto& tier : _tiers) {
+        __mmask16 bid_mask = tier.active_mask & 0x5555; // 0b0101010101010101 
+        __mmask16 ask_mask = tier.active_mask & 0xAAAA; // 0b1010101010101010
+        
+        // volume > 0 的有效项
+        __mmask16 vol_mask = _mm512_cmpneq_epi32_mask(tier.volumes, _mm512_setzero_si512());
+
+        max_bid = _mm512_mask_max_epi32(max_bid, bid_mask & vol_mask, max_bid, tier.prices);
+        min_ask = _mm512_mask_min_epi32(min_ask, ask_mask & vol_mask, min_ask, tier.prices);
+    }
+    
+    best_bid = _mm512_reduce_max_epi32(max_bid);
+    best_ask = _mm512_reduce_min_epi32(min_ask);
 }
