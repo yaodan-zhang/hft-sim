@@ -1,0 +1,1 @@
+g++ -O2 -mavx512f -std=c++17 -march=native test_match.cpp matching_engine.cpp orderbook.cpp -o test_match
