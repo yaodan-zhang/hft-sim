@@ -5,6 +5,8 @@
 #include <netinet/in.h>
 #include <sched.h>
 #include <atomic>
+#include <bitset>
+#include <fcntl.h>  
 
 FeedHandler::FeedHandler(int cpu_core) : _cpu_core(cpu_core) {
     _stats.packets_received = 0;
@@ -54,8 +56,9 @@ void FeedHandler::bind_cpu_core() {
 }
 
 void FeedHandler::start(const char* multicast_addr, int port) {
-    // Create UDP socket
-    _fd = socket(AF_INET, SOCK_DGRAM, 0);
+    // Create UDP socket, non-blocking & busy polling & bind to CPU core 2
+    _fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+
     if (_fd < 0) {
         std::cerr << "Socket creation failed" << std::endl;
         return;
@@ -91,7 +94,7 @@ void FeedHandler::start(const char* multicast_addr, int port) {
         return;
     }
 
-    // Join multicast group
+    // Join multicast group (if required)
     if (strcmp(multicast_addr, "127.0.0.1") != 0) {
         ip_mreq mreq;
         inet_pton(AF_INET, multicast_addr, &mreq.imr_multiaddr);
@@ -113,16 +116,23 @@ void FeedHandler::start(const char* multicast_addr, int port) {
 
 void FeedHandler::receive_loop() {
     char buffer[1024]; // Receive up to 16 Market Data at a time
+    sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
 
     while (_running.load(std::memory_order_acquire)) {
-        sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
+        
         ssize_t received = recvfrom(_fd, buffer, sizeof(buffer), 0, (sockaddr*) &client_addr, &client_len);
 
         // Non-stopping receive
         if (received < 0) {
-            std::cerr << "Receive failed" << std::endl;
-            continue;
+            // Busy polling
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                _mm_pause(); // or std::this_thread::yield();
+                continue;
+            } else {
+                perror("recvfrom");
+                continue;
+            }
         }
 
         _stats.packets_received++;
@@ -132,11 +142,11 @@ void FeedHandler::receive_loop() {
         // std::cout << num_entries << " MarketData entries" << std::endl;
 
         MarketData* data = reinterpret_cast<MarketData*>(buffer);
-        // for (size_t i = 0; i < num_entries; ++i) {
-        //     std::cout << "MarketData[" << i << "]: price=" << data[i].price
-        //               << ", volume=" << data[i].volume << ", side=" << (int)data[i].side
-        //               << ", type=" << (char) data[i].type << std::endl;
-        // }
+        for (size_t i = 0; i < num_entries; ++i) {
+            std::cout << "MarketData[" << i << "]: price=" << data[i].price
+                      << ", volume=" << data[i].volume << ", side=" << (int)data[i].side
+                      << ", type=" << (char) data[i].type << std::endl;
+        }
 
         // Parse prices and volumes data
         alignas(64) int32_t prices[16] = {0};
@@ -153,8 +163,8 @@ void FeedHandler::receive_loop() {
                 || (data[i].side != 0 && data[i].side != 1
                 || (data[i].price <= 0
                 ))) {
-                // std::cout << "Skipping invalid entry[" << i << "]: type=" << (char)data[i].type
-                //           << ", side=" << (int)data[i].side << ", volume=" << data[i].volume << std::endl;
+                std::cout << "Skipping invalid entry[" << i << "]: type=" << (char)data[i].type
+                          << ", side=" << (int)data[i].side << ", volume=" << data[i].volume << std::endl;
                 continue;
             }
 
@@ -167,6 +177,20 @@ void FeedHandler::receive_loop() {
 
             valid_entries++;
         }
+
+        // // DEBUG PRINT
+        // std::cout<< "Feed handler passes prices " << std::endl;
+        // for (auto p : prices) {
+        //     std::cout << "price " << p << std::endl;
+        // }
+
+        // std::cout<< "Feed handler passes volumes " << std::endl;
+        // for (auto v : volumes) {
+        //     std::cout << "vol " << v << std::endl;
+        // }
+
+        // std::cout << "Side mask is " << std::bitset<16>(side_mask) << std::endl;
+        // // END OF DEBUG
 
         if (_callback && valid_entries > 0) {
             
