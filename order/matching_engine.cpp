@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <tuple>
+#include <bitset>
 
 OrderBook& MatchingEngine::order_book() {
     return _order_book;
@@ -12,6 +13,21 @@ __mmask16 MatchingEngine::match(const __m512i& prices, uint32_t (&volumes)[16], 
     __mmask16 unmatched_mask = 0;
     alignas(64) int32_t price_arr[16];
     _mm512_store_epi32(price_arr, prices);
+
+    // // DEBUG PRINT
+    // std::cout<< "Matching engine receives prices " << std::endl;
+    // for (auto p : price_arr) {
+    //     std::cout << "price " << p << std::endl;
+    // }
+
+    // std::cout<< "Matching engine receives volumes " << std::endl;
+    // for (auto v : volumes) {
+    //     std::cout << "vol " << v << std::endl;
+    // }
+
+    // std::cout << "Matching engine receives side mask: " << std::bitset<16>(side_mask) << std::endl;
+
+    // // END OF DEBUG
 
     // Collect bids (from order book and input)
     std::vector<std::tuple<int32_t, int, size_t, bool>> bids; // (price, index, tier_idx, is_book)
@@ -37,7 +53,7 @@ __mmask16 MatchingEngine::match(const __m512i& prices, uint32_t (&volumes)[16], 
 
     // From input
     for (int i = 0; i < 16; ++i) {
-        if (!((side_mask >> i) & 1) && volumes[i] > 0 && prices[i] > 0) { // Bid: side=0
+        if (!((side_mask >> i) & 1) && volumes[i] > 0 && price_arr[i] > 0) { // Bid: side=0
             bids.emplace_back(price_arr[i], i, SIZE_MAX, false);
         }
     }
@@ -47,7 +63,6 @@ __mmask16 MatchingEngine::match(const __m512i& prices, uint32_t (&volumes)[16], 
         if (std::get<3>(a) != std::get<3>(b)) return std::get<3>(a); // true (book) before false (input)
         return std::get<0>(a) > std::get<0>(b); // Higher price first
     });
-
 
     // Collect asks (from order book and input)
     std::vector<std::tuple<int32_t, int, size_t, bool>> asks; // (price, index, tier_idx, is_book)
@@ -73,7 +88,7 @@ __mmask16 MatchingEngine::match(const __m512i& prices, uint32_t (&volumes)[16], 
 
     // From input
     for (int i = 0; i < 16; ++i) {
-        if ((side_mask >> i) & 1 && volumes[i] > 0 && prices[i] > 0) { // Ask: side=1
+        if ((side_mask >> i) & 1 && volumes[i] > 0 && price_arr[i] > 0) { // Ask: side=1
             asks.emplace_back(price_arr[i], i, SIZE_MAX, false);
         }
     }
@@ -83,6 +98,50 @@ __mmask16 MatchingEngine::match(const __m512i& prices, uint32_t (&volumes)[16], 
         if (std::get<3>(a) != std::get<3>(b)) return std::get<3>(a); // true (book) before false (input)
         return std::get<0>(a) < std::get<0>(b); // Lower price first
     });
+
+    // // DEBUG
+    // // PRINT existing bid and ask.
+    // std::cout << "Existing bids are: " << std::endl;
+    // for (auto & bid: bids) {
+    //     int32_t bid_price = std::get<0>(bid);
+    //     int i = std::get<1>(bid);
+    //     size_t bid_tier = std::get<2>(bid);
+    //     bool is_book = std::get<3>(bid);
+    //     uint32_t bid_vol;
+
+    //     // Parse bid volume
+    //     if (!is_book) {
+    //         bid_vol = volumes[i];
+    //     } else {
+    //         alignas(64) uint32_t book_volumes[16];
+    //         _mm512_store_epi32(book_volumes, _order_book._tiers[bid_tier].volumes);
+    //         bid_vol = book_volumes[i];
+    //     }
+
+    //     std::cout << "Bid price: " << bid_price << " bid volume: " << bid_vol << std::endl; 
+    // }
+
+    // std::cout << "Existing asks are: " << std::endl;
+    // for (auto & ask: asks) {
+    //     int32_t ask_price = std::get<0>(ask);
+    //     int i = std::get<1>(ask);
+    //     size_t ask_tier = std::get<2>(ask);
+    //     bool is_book = std::get<3>(ask);
+    //     uint32_t ask_vol;
+
+    //     // Parse bid volume
+    //     if (!is_book) {
+    //         ask_vol = volumes[i];
+    //     } else {
+    //         alignas(64) uint32_t book_volumes[16];
+    //         _mm512_store_epi32(book_volumes, _order_book._tiers[ask_tier].volumes);
+    //         ask_vol = book_volumes[i];
+    //     }
+
+    //     std::cout << "Ask price: " << ask_price << " bid volume: " << ask_vol << std::endl; 
+    // }
+    // // END OF DEBUG.
+
 
     // Match existing bids and asks : (price, index, tier_idx, is_book)
     for (auto bid_it = bids.begin(); bid_it != bids.end(); ++bid_it) {
@@ -179,9 +238,9 @@ __mmask16 MatchingEngine::match(const __m512i& prices, uint32_t (&volumes)[16], 
             }
 
             // // Current bid is matched in full, proceed with the next bid.
-            // if (bid_vol == 0) {
-            //     break;
-            // }
+            if (bid_vol == 0) {
+                break;
+            }
         }
 
         if (bid_vol > 0 && !is_book) {
