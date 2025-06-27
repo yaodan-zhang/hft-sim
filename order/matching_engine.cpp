@@ -3,77 +3,85 @@
 #include <algorithm>
 #include <iostream>
 
-MatchingEngine::MatchingEngine() : _order_book() {}
+OrderBook& MatchingEngine::order_book() {
+    return _order_book;
+}
 
-OrderBook& MatchingEngine::order_book() { return _order_book;}
-
-
-bool MatchingEngine::match(const Order& incoming, std::function<void(uint32_t, uint32_t, uint32_t)> on_fill) {
+bool MatchingEngine::match(const Order& incoming) {
+    // Get order volume
     uint32_t remaining = incoming.volume;
-    Side incoming_side = incoming.side;
-    int32_t incoming_price = incoming.price;
-    uint32_t incoming_id = incoming.order_id;
 
+    // Match
     for (size_t tier_idx = 0; tier_idx < OrderBook::MAX_TIERS && remaining > 0; ++tier_idx) {
-        auto& tier = _order_book._tiers[tier_idx];
+        OrderBook::Tier& tier = _order_book.get_tier(tier_idx);
+        OrderBook::order_map_t& order_map = _order_book.get_map();
 
-        __m512i& prices = tier.prices;
-        __m512i& volumes = tier.volumes;
-        __mmask16& active = tier.active_mask;
-        __m512i& ids = tier.order_ids;
+        __mmask16 new_active_mask = match_tier_avx512(
+            tier.order_ids,
+            tier.timestamps,
+            tier.prices,
+            tier.volumes,
 
-        __mmask16 matched_mask = match_tier_avx512(
-            prices,
-            volumes,
-            active,
-            incoming_side,
-            incoming_price,
+            order_map,
+            
+            tier.active_mask,
+            
+            incoming,
+
             remaining,
-            incoming_id,
-            on_fill,
-            ids
+            
+            on_fill
         );
 
-        active = matched_mask;
-        tier.seq.fetch_add(1, std::memory_order_release);
+        tier.active_mask = new_active_mask;
     }
 
+    // Ack order with remaining volume
     if (remaining > 0) {
         Order residual = incoming;
         residual.volume = remaining;
-        return _order_book.insert(residual);
+        bool insert_order = _order_book.insert(residual);
+        if (!insert_order) {
+            return false;
+        } else {
+            AckReport ack = {
+                .order_id = residual.id,
+                .order_timestamp = residual.timestamp,
+                .order_price = residual.price,
+                .remaining_volume = residual.volume,
+                .order_side = residual.side
+            };
+            on_ack(ack);
+        }
     }
 
     return true;
 }
 
-
 bool MatchingEngine::cancel_order(uint32_t order_id) {
-    auto it = _order_book._order_map.find(order_id);
-    if (it == _order_book._order_map.end()) return false;
+    OrderBook::order_map_t& order_map = _order_book.get_map();
+    auto it = order_map.find(order_id);
 
-    auto [tier_idx, slot_idx] = it->second;
-    auto& slot = _order_book._tiers[tier_idx].slots[slot_idx];
-
-// 现在 slot 是真正的订单槽，可以访问 slot.active、slot.order.volume 等
-
-    if (!slot.active || slot.order.volume == 0) return false;
-
-    uint32_t cancelled_volume = slot.order.volume;
-    slot.order.volume = 0;
-    slot.active = false;
-
-    _order_book._tiers[slot.tier_idx].active_mask &= ~(1 << slot.slot_idx);
-    _order_book._tiers[slot.tier_idx].seq.fetch_add(1, std::memory_order_release);
-
-    _order_book._order_map.erase(it);
-
-    if (on_cancel) {
-        on_cancel(CancelReport{
-            .order_id = order_id,
-            .cancelled_volume = cancelled_volume
-        });
+    if (it == order_map.end()){
+        return false;
     }
 
+    // Erase order item in order map
+    order_map.erase(it);
+
+    // Remove mask entry in tier for this order
+    auto [tier_idx, slot_idx] = it->second;
+
+    OrderBook::Tier& tier = _order_book.get_tier(tier_idx);
+
+    tier.active_mask &= ~(1 << slot_idx);
+
+    if (on_cancel) {
+        CancelReport c = {
+            .order_id = order_id,
+            .cancelled_volume = reinterpret_cast<uint32_t*>(&tier.volumes)[slot_idx]
+        };
+        on_cancel(c);
+    }
     return true;
 }
