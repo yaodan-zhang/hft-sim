@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <vector>
 #include <iostream>
+#include <bitset>
 
 __mmask16 match_tier_avx512(
     __m512i& tier_order_ids,
@@ -74,7 +75,6 @@ __mmask16 match_tier_avx512(
 
         // Erase mask entry and order item in order map
         if (vol_arr[i] == 0) {
-            valid_mask &= ~(1 << i);
             order_map.erase(order_map.find(id_arr[i]));
         }
 
@@ -94,5 +94,5 @@ __mmask16 match_tier_avx512(
     tier_volumes = _mm512_load_epi32(vol_arr);
 
     // Return tier new active mask
-    return (valid_mask | (tier_active_mask & (~side_mask))); // Keep incoming side's active mask unchanged.
+    return ((valid_mask ^ (tier_active_mask & side_mask)) | (tier_active_mask & (~side_mask))); // Keep incoming side's active mask unchanged.
 }

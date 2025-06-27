@@ -134,7 +134,6 @@ void FeedHandler::receive_loop() {
         size_t valid_entries = 0;
 
         for (size_t i = 0; i < count; ++i) {
-            // 64字节对齐的行情数据结构 (40字节有效载荷)
             // struct alignas(64) MarketData {
             //     MsgType  type;       
             //     uint32_t order_id;    

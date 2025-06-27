@@ -13,9 +13,10 @@ public:
 
     // 16 orders per tier (8 bid on even positions + 8 ask on odd positions)
     static constexpr size_t MAX_TIERS = 10;
-    static constexpr int32_t TIER_GRANULARITY = 8; // 每个 tier 跨越 8 bid/ask tick
+    static constexpr int32_t TIER_GRANULARITY = 8; // Each tier covers 8 bids and 8 asks
 
-    // bid 偶数，ask 奇数
+    // bid stays in even positions [0,2,4,6,8,10,12,14],
+    // ask stays in odd positions [1,3,5,7,9,11,13,15].
     struct Tier {
         __m512i order_ids   = _mm512_setzero_si512();
         __m512i timestamps  = _mm512_setzero_si512();

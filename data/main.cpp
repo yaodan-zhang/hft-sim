@@ -51,13 +51,11 @@ int main() {
     FeedHandler feed(2);
 
     feed.register_callback([&engine, &book](const MarketData& market_data) {
-        // 市场数据类型 (兼容ITCH 5.0和Binary协议)
         // enum class MsgType : uint8_t {
         //     ORDER_ADD    = 'A',
         //     ORDER_CANCEL = 'X',
         // };
 
-        // // 64字节对齐的行情数据结构 (40字节有效载荷)
         // struct alignas(64) MarketData {
         //     MsgType  type;       
         //     uint32_t order_id;    

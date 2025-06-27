@@ -34,15 +34,15 @@ bool OrderBook::insert(const Order& order) {
     size_t start = order.side == Side::BID? 0 : 1;
     for (size_t i = start; i < 16; i+=2) {
 
-        // 检查该口是否为空
+        // Check if slot is empty
         if (!((tier.active_mask >> i) & 1)) {
-            // 写入order
+            // Insert order
             reinterpret_cast<uint32_t*>(&tier.order_ids)[i]     = order.id;
             reinterpret_cast<uint32_t*>(&tier.timestamps)[i]    = order.timestamp;
             reinterpret_cast<int32_t*>(&tier.prices)[i]         = order.price;
             reinterpret_cast<uint32_t*>(&tier.volumes)[i]       = order.volume;
 
-            // 设置 active bit
+            // Set active bit
             tier.active_mask |= (1 << i);
 
             _order_map[order.id] = {tier_idx, i};
@@ -61,14 +61,13 @@ bool OrderBook::cancel(uint32_t order_id, uint32_t& canceled_volume) {
     auto [tier_idx, slot_idx] = it->second;
     Tier& tier = _tiers[tier_idx];
 
-    // 从 volumes 向量中取出该 slot 的原始值
     uint32_t* volume_ptr = reinterpret_cast<uint32_t*>(&tier.volumes);
     canceled_volume = volume_ptr[slot_idx];
 
-    // 清除 active_mask
+    // Clear slot in active_mask
     tier.active_mask &= ~(1 << slot_idx);
 
-    // 移除 order_map 映射
+    // Delete item in order_map
     _order_map.erase(it);
 
     return true;
@@ -91,7 +90,7 @@ bool OrderBook::reduce(uint32_t order_id, uint32_t reduce_by) {
     // Reduce
     volume_ptr[slot_idx] -= reduce_by;
     if (volume_ptr[slot_idx] == 0) {
-        // 全部减完，视为取消
+        // All is taken, delete order
         tier.active_mask &= ~(1 << slot_idx);
         _order_map.erase(it);
     }
@@ -103,15 +102,15 @@ std::pair<int32_t, int32_t> OrderBook::get_top_of_book() const {
     __m512i min_ask = _mm512_set1_epi32(std::numeric_limits<int32_t>::max());
 
     for (const auto& tier : _tiers) {
-        // 加载价格和数量
+        // Load tier price and active mask
         __m512i prices = tier.prices;
         __mmask16 mask = tier.active_mask;
 
-        // 对于有效的 bid 槽位（偶数位）
+        // Get active bid mask (even positions)
         __mmask16 bid_mask = mask & 0x5555;
         max_bid = _mm512_mask_max_epi32(max_bid, bid_mask, max_bid, prices);
 
-        // 对于有效的 ask 槽位（奇数位）
+        // Get active ask mask (odd positions)
         __mmask16 ask_mask = mask & 0xAAAA;
         min_ask = _mm512_mask_min_epi32(min_ask, ask_mask, min_ask, prices);
     }

@@ -45,7 +45,7 @@ void benchmark_matching(int num_orders) {
 }
 
 void benchmark_cancel(int num_orders) {
-    // 假设前面所有订单都已经成功挂进去了
+    // Assume all previous orders have been successfully inserted into the order book.
     uint64_t start_time = now();
     for (int i = 0; i < num_orders; ++i) {
         engine.cancel_order(i);
@@ -83,8 +83,8 @@ int main() {
     constexpr int NUM_ORDERS = 100000;
 
     std::cout << "====== PERFORMANCE BENCHMARK ======\n";
-    benchmark_matching(NUM_ORDERS);     // 撮合性能
-    benchmark_top_of_book(100000);      // 查询 Top-of-Book 性能
-    benchmark_cancel(NUM_ORDERS);       // 撤单性能
+    benchmark_matching(NUM_ORDERS);     // Matching performance
+    benchmark_top_of_book(100000);      // Top-of-book query performance
+    benchmark_cancel(NUM_ORDERS);       // Cancel performance
     return 0;
 }

@@ -3,13 +3,14 @@
 #include <atomic>
 #include <functional>
 
-// 市场数据类型 (兼容ITCH 5.0和Binary协议)
+// Market data type (compatible with ITCH 5.0 and binary protocols)
+
 enum class MsgType : uint8_t {
     ORDER_ADD    = 'A',
     ORDER_CANCEL = 'X',
 };
 
-// 64字节对齐的行情数据结构 (40字节有效载荷)
+// 64-byte aligned market data structure
 struct alignas(64) MarketData {
     MsgType  type;       
     uint32_t order_id;    
@@ -19,5 +20,5 @@ struct alignas(64) MarketData {
     uint8_t  side;        // Bid: 0, Ask: 1;
 };
 
-// Aligns with AVX requirements
+// Compatible with AVX-512 instructions
 static_assert(sizeof(MarketData) == 64, "MarketData must be exactly 64 bytes");

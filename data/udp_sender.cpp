@@ -7,13 +7,11 @@
 #include <cassert>
 #include "market_data.h"
 
-// // 市场数据类型 (兼容ITCH 5.0和Binary协议)
 // enum class MsgType : uint8_t {
 //     ORDER_ADD    = 'A',
 //     ORDER_CANCEL = 'X',
 // };
 
-// // 64字节对齐的行情数据结构 (40字节有效载荷)
 // struct alignas(64) MarketData {
 //     MsgType  type;       
 //     uint32_t order_id;    
@@ -65,7 +63,7 @@ int main() {
     // Create the third packet
     packets[0]  = {MsgType::ORDER_ADD, 8, 18, 0, 5, 0};  // invalid, price == 0
     packets[1]  = {MsgType::ORDER_ADD, 9, 24, 1010,  0, 1}; // invalid, volume == 0
-    packets[2]  = {MsgType::ORDER_ADD, 10, 26, 1000, 5, 1}; // Top of book should be bid 995, ask 0 (no ask)
+    packets[2]  = {MsgType::ORDER_ADD, 10, 26, 1000, 5, 1}; // Top of book should be bid 995, ask 0 (no ask orders available)
 
     if (sendto(sock, packets.data(), 3 * sizeof(MarketData), 0, (sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("sendto");

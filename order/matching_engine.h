@@ -8,14 +8,14 @@ struct FillReport {
     uint32_t taker_order_id;
     uint32_t maker_order_id;
     int32_t  traded_price;
-    uint32_t traded_volume;
+    uint32_t traded_volume; // min of taker volume and maker volume
 };
 
 struct AckReport {
     uint32_t order_id;
     uint64_t order_timestamp;
     int32_t  order_price;
-    uint32_t remaining_volume;
+    uint32_t remaining_volume; // <= order volume
     Side     order_side;
 };
 
@@ -31,15 +31,16 @@ class MatchingEngine {
         // Return order book.
         OrderBook& order_book();
 
-        // 撮合一个订单，若成功，调用on_fill (taker_id, maker_id, price, traded volume (<= volume)),
-        // 若撮合不成功或有剩余，调用on_ack (order_id, timestamp, price, remaining volume (<=volume), side).
-        // 若成功执行上述请求，返回true，否则返回false。
+        // Match an order, if success (matched in full or partial), call on_fill,
+        // if failure (can't match) or partially filled, call on_ack and ack the order.
+        // If above is successful, return true, o/w return false.
         bool match(const Order& order);
 
-        // 撤单,成功的话返回true，同时调用on_cancel, 失败返回false(订单不存在).
+        // Cancel an order, if order exists and gets canceled, return true,
+        // else return false (order doesn't exist or is already filled).
         bool cancel_order(uint32_t order_id);
 
-        // 可选的外部回调
+        // Optional external callbacks
         std::function<void(const FillReport&)> on_fill = nullptr;
         std::function<void(const AckReport&)> on_ack = nullptr;
         std::function<void(const CancelReport&)> on_cancel = nullptr;

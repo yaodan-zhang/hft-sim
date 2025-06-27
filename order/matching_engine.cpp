@@ -51,7 +51,10 @@ bool MatchingEngine::match(const Order& incoming) {
                 .remaining_volume = residual.volume,
                 .order_side = residual.side
             };
-            on_ack(ack);
+
+            if (on_ack) {
+                on_ack(ack);
+            }
         }
     }
 

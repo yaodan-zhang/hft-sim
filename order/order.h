@@ -6,9 +6,6 @@ enum class Side : uint8_t {
 };
 
 struct Order {
-    Order(uint32_t id, uint32_t ts, int32_t pr, uint32_t vol, Side sd)
-        : id(id), timestamp(ts), price(pr), volume(vol), side(sd) {}
-
     uint32_t id;
     uint32_t timestamp;
     int32_t price;
