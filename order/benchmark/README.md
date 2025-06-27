@@ -1,7 +1,7 @@
-Compile:   
+### Compile:   
 g++ -O3 -mavx512f -std=c++2a benchmark_match.cpp ../matching_engine.cpp ../orderbook.cpp ../match_tier_avx512.cpp -o benchmark 
 
-Run:  
+### Profiling:  
 perf stat ./benchmark  
 ====== PERFORMANCE BENCHMARK ======  
 [Matching] Orders: 100000, Total time: 24675672 ns, Avg latency: 246 ns, Throughput: 4.05257e+06 ops/sec  
